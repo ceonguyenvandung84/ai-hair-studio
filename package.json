@@ -1,0 +1,25 @@
+{
+  "name": "ai-hair-studio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3005",
+    "dev:api": "wrangler pages dev --ip 127.0.0.1 --port 8788",
+    "build": "next build",
+    "build:cf": "CF_PAGES=1 next build && wrangler pages deploy out --project-name ai-hair-studio",
+    "start": "next start",
+    "lint": "eslint",
+    "migrate:local": "wrangler d1 execute ai-hair-db --local --file=./migrations/0001_create_users.sql",
+    "migrate:prod": "wrangler d1 execute ai-hair-db --file=./migrations/0001_create_users.sql"
+  },
+  "dependencies": {
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "wrangler": "^4.0.0"
+  }
+}
