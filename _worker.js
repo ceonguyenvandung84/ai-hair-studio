@@ -250,9 +250,11 @@ export default {
         case "/api/admin/users": return await handleAdminUsers(request, env);
         case "/api/admin/user": return await handleAdminUser(request, env);
         default:
-          return new Response("Not Found", { status: 404 });
+          if (path.startsWith("/api/")) return new Response("Not Found", { status: 404 });
+          return env.ASSETS.fetch(request);
       }
     } catch (e) {
+      if (!path.startsWith("/api/") && env.ASSETS) return env.ASSETS.fetch(request);
       return json({ error: e.message }, 500);
     }
   },
