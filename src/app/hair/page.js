@@ -152,46 +152,73 @@ export default function Home() {
       setAnalysisResult(analyzeData.analysis || "AI đã phân tích thành công.");
       setStatus("generating");
 
-      // 2. Generate sequentially — 1 at a time to avoid 429
+      // 2. Generate — first image sequentially to establish credit state,
+      //    remaining images in a 2-way concurrency pool for speed.
       const promptsArray = analyzeData.prompts || Array(count).fill("trendy hairstyle");
+      const batchStamp = Date.now().toString();
       let creditsState = null;
+      let minRemaining = null;
 
-      for (let i = 0; i < promptsArray.length; i++) {
-        const uniqueId = Date.now().toString() + "-" + i;
+      const applyRemaining = (rem) => {
+        if (rem === undefined) return;
+        if (minRemaining === null || rem < minRemaining) {
+          minRemaining = rem;
+          setCreditsRemaining(rem);
+        }
+      };
+
+      const genOne = async (i, explicitCreditsUsed) => {
+        const uniqueId = batchStamp + "-" + i;
         const body = { prompt: promptsArray[i], aspectRatio, photoBase64: preview };
-
-        if (creditsState) {
+        if (explicitCreditsUsed !== null && creditsState) {
           body._skipUserCheck = true;
-          body._creditsUsed = creditsState.creditsUsed;
+          body._creditsUsed = explicitCreditsUsed;
           body._lastResetStr = creditsState.lastResetStr;
           body._dailyLimit = creditsState.dailyLimit;
         }
-
         try {
           const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(body)
           });
-
-          if (!res.ok) {
-            setResults(prev => [...prev, { id: uniqueId, error: true }]);
-            continue;
-          }
-
+          if (!res.ok) { setResults(prev => [...prev, { id: uniqueId, error: true }]); return; }
           const data = await res.json();
           if (data.url) {
             setResults(prev => [...prev, { id: uniqueId, url: data.url }]);
-            if (data.credits_remaining !== undefined) setCreditsRemaining(data.credits_remaining);
+            applyRemaining(data.credits_remaining);
+          } else {
+            setResults(prev => [...prev, { id: uniqueId, error: true }]);
+          }
+        } catch (err) {
+          setResults(prev => [...prev, { id: uniqueId, error: true }]);
+        }
+      };
 
-            if (!creditsState && data.daily_limit) {
-              creditsState = {
-                creditsUsed: data.daily_limit - data.credits_remaining,
-                lastResetStr: new Date().toISOString(),
-                dailyLimit: data.daily_limit
-              };
-            } else if (creditsState) {
-              creditsState.creditsUsed += 1;
+      // First image: real user check to establish credit state
+      {
+        const uniqueId = batchStamp + "-0";
+        const body = { prompt: promptsArray[0], aspectRatio, photoBase64: preview };
+        try {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(body)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              setResults(prev => [...prev, { id: uniqueId, url: data.url }]);
+              applyRemaining(data.credits_remaining);
+              if (data.daily_limit) {
+                creditsState = {
+                  creditsUsed: data.daily_limit - data.credits_remaining,
+                  lastResetStr: new Date().toISOString(),
+                  dailyLimit: data.daily_limit
+                };
+              }
+            } else {
+              setResults(prev => [...prev, { id: uniqueId, error: true }]);
             }
           } else {
             setResults(prev => [...prev, { id: uniqueId, error: true }]);
@@ -200,6 +227,22 @@ export default function Home() {
           setResults(prev => [...prev, { id: uniqueId, error: true }]);
         }
       }
+
+      // Remaining images: pool of 2 concurrent requests
+      const base = creditsState ? creditsState.creditsUsed : null;
+      const queue = [];
+      for (let i = 1; i < promptsArray.length; i++) {
+        queue.push({ i, credits: base !== null ? base + (i - 1) : null });
+      }
+      const POOL = 2;
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < queue.length) {
+          const item = queue[cursor++];
+          await genOne(item.i, item.credits);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(POOL, queue.length) }, () => worker()));
 
       setStatus("done");
 

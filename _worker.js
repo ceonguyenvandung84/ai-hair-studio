@@ -93,7 +93,7 @@ async function handleAnalyze(request, env) {
       const mimeMatch = photoBase64.match(/^data:(image\/\w+);base64,/);
       if (mimeMatch) parts.push({ inlineData: { mimeType: mimeMatch[1], data: photoBase64.split(",")[1] } });
     }
-    let response = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`, {
+    let response = await fetch(`https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -103,7 +103,7 @@ async function handleAnalyze(request, env) {
     });
     // Fallback: nếu ảnh không hợp lệ, thử lại text-only
     if (!response.ok && photoBase64) {
-      const fallback = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`, {
+      const fallback = await fetch(`https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -166,7 +166,7 @@ async function handleGenerate(request, env) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
       try {
-        geminiRes = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-2.5-flash-image:generateContent`, {
+        geminiRes = await fetch(`https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-2.5-flash-image:generateContent`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           signal: controller.signal,
