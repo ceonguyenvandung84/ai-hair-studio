@@ -7,4 +7,4 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "ai-hair-db"
-database_id = "local-dev"
+database_id = "38af2f56-013b-4139-8d2e-0541e98f0091"

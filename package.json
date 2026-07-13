@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "migrate:local": "wrangler d1 execute ai-hair-db --local --file=./migrations/0001_create_users.sql",
-    "migrate:prod": "wrangler d1 execute ai-hair-db --file=./migrations/0001_create_users.sql"
+    "migrate:prod": "wrangler d1 execute ai-hair-db --remote --file=./migrations/0001_create_users.sql",
+    "deploy": "npm run build:pages && wrangler pages deploy out --project-name ai-hair-studio --branch main"
   },
   "dependencies": {
     "next": "16.2.9",
