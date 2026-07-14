@@ -156,6 +156,7 @@ export default function Home() {
       //    remaining images in a 2-way concurrency pool for speed.
       const promptsArray = analyzeData.prompts || Array(count).fill("trendy hairstyle");
       const batchStamp = Date.now().toString();
+      const MIN_GAP = 4000;
       let creditsState = null;
       let minRemaining = null;
 
@@ -176,23 +177,28 @@ export default function Home() {
           body._lastResetStr = creditsState.lastResetStr;
           body._dailyLimit = creditsState.dailyLimit;
         }
-        try {
-          const res = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(body)
-          });
-          if (!res.ok) { setResults(prev => [...prev, { id: uniqueId, error: true }]); return; }
-          const data = await res.json();
-          if (data.url) {
-            setResults(prev => [...prev, { id: uniqueId, url: data.url }]);
-            applyRemaining(data.credits_remaining);
-          } else {
-            setResults(prev => [...prev, { id: uniqueId, error: true }]);
+        const MAX_TRIES = 3;
+        for (let t = 0; t < MAX_TRIES; t++) {
+          try {
+            const res = await fetch('/api/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify(body)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.url) {
+                setResults(prev => [...prev, { id: uniqueId, url: data.url }]);
+                applyRemaining(data.credits_remaining);
+                return;
+              }
+            }
+          } catch (err) { /* retry */ }
+          if (t < MAX_TRIES - 1) {
+            await new Promise(r => setTimeout(r, MIN_GAP + Math.floor(Math.random() * 2000)));
           }
-        } catch (err) {
-          setResults(prev => [...prev, { id: uniqueId, error: true }]);
         }
+        setResults(prev => [...prev, { id: uniqueId, error: true }]);
       };
 
       // First image: real user check to establish credit state
@@ -228,21 +234,22 @@ export default function Home() {
         }
       }
 
-      // Remaining images: pool of 2 concurrent requests
+      // Remaining images: paced launcher — minimum MIN_GAP ms between
+      // consecutive API calls (no simultaneous burst), auto-retry inside genOne.
       const base = creditsState ? creditsState.creditsUsed : null;
-      const queue = [];
+      let lastStart = Date.now();
+      const tasks = [];
       for (let i = 1; i < promptsArray.length; i++) {
-        queue.push({ i, credits: base !== null ? base + (i - 1) : null });
+        const idx = i;
+        const credits = base !== null ? base + (i - 1) : null;
+        tasks.push((async () => {
+          const wait = Math.max(0, lastStart + MIN_GAP - Date.now());
+          if (wait) await new Promise(r => setTimeout(r, wait));
+          lastStart = Date.now();
+          await genOne(idx, credits);
+        })());
       }
-      const POOL = 2;
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < queue.length) {
-          const item = queue[cursor++];
-          await genOne(item.i, item.credits);
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(POOL, queue.length) }, () => worker()));
+      await Promise.all(tasks);
 
       setStatus("done");
 

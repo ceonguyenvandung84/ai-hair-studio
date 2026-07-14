@@ -167,9 +167,10 @@ async function handleGenerate(request, env) {
       if (mimeMatch) parts.push({ inlineData: { mimeType: mimeMatch[1], data: photoBase64.split(",")[1] } });
     }
     let geminiRes;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
+      let fetchError = null;
       try {
         geminiRes = await fetch(`https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-2.5-flash-image:generateContent`, {
           method: "POST",
@@ -186,11 +187,29 @@ async function handleGenerate(request, env) {
             },
           }),
         });
+      } catch (e) {
+        fetchError = e;
       } finally { clearTimeout(timeout); }
-      if (geminiRes.status === 429) {
-        const base = Math.pow(2, attempt + 1) * 1000;
-        const jitter = Math.floor(Math.random() * 2000);
-        await new Promise(r => setTimeout(r, base + jitter));
+
+      const retryable =
+        fetchError !== null ||
+        geminiRes.status === 429 ||
+        (geminiRes.status >= 500 && geminiRes.status < 600);
+
+      if (retryable) {
+        if (attempt === 7) {
+          if (fetchError) throw new Error(`Gemini 2.5 Flash Image request failed: ${fetchError.message}`);
+          const errText = await geminiRes.text();
+          throw new Error(`Gemini 2.5 Flash Image failed: ${geminiRes.status} ${errText}`);
+        }
+        let backoff = Math.pow(2, attempt + 1) * 1000 + Math.floor(Math.random() * 2000);
+        backoff = Math.max(backoff, 10000);
+        const retryAfter = geminiRes.headers?.get?.("Retry-After");
+        if (retryAfter) {
+          const sec = parseInt(retryAfter, 10);
+          if (!isNaN(sec)) backoff = Math.max(backoff, sec * 1000);
+        }
+        await new Promise(r => setTimeout(r, backoff));
         continue;
       }
       break;
